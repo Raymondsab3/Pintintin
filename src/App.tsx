@@ -43,6 +43,7 @@ export default function App() {
   const [userCount, setUserCount] = useState(1);
   const [showPlayerSelection, setShowPlayerSelection] = useState(false);
   const [selectedForNewGame, setSelectedForNewGame] = useState<string[]>([]);
+  const [currentView, setCurrentView] = useState<'game' | 'players' | 'history' | 'chat'>('game');
 
   // Persistence
   useEffect(() => {
@@ -55,6 +56,13 @@ export default function App() {
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     if (savedCount) setGlobalGameCount(parseInt(savedCount));
     if (savedActive) setActiveGame(JSON.parse(savedActive));
+
+    // Auto-guest login from URL
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('game') || params.get('guest')) {
+      setRole('guest');
+      if (!username) setUsername('Invitado');
+    }
 
     // Initialize Socket
     socket = io();
@@ -166,12 +174,13 @@ export default function App() {
   const handleFoul = (playerId: string, foulType: string) => {
     if (!activeGame) return;
     const others = activeGame.players.filter(p => p.id !== playerId);
-    finishGame(activeGame.players, others[0].id, playerId, 'foul', foulType);
+    // Both others are winners
+    finishGame(activeGame.players, others.map(o => o.id), playerId, 'foul', foulType);
   };
 
   const finishGame = (
     finalPlayers: ActiveGame['players'], 
-    winnerId: string, 
+    winnerIds: string | string[], 
     loserId: string, 
     lossType: 'points' | 'foul',
     foulType?: string
@@ -192,11 +201,15 @@ export default function App() {
     setHistory([newHistoryEntry, ...history]);
     setPlayers(players.map(p => p.id === loserId ? { ...p, losses: p.losses + 1 } : p));
     setGlobalGameCount(prev => prev + 1);
+    
+    const winners = Array.isArray(winnerIds) ? winnerIds : [winnerIds];
+    
     setActiveGame({
       ...activeGame!,
       players: finalPlayers,
       isFinished: true,
-      winnerId,
+      winnerId: winners[0],
+      winnerIds: winners,
       loserId,
       tieForLoser: false
     });
@@ -248,6 +261,11 @@ export default function App() {
           className="card max-w-md w-full text-center space-y-8"
         >
           <div className="space-y-2">
+            <div className="flex justify-center mb-4">
+              <div className="bg-zinc-900 text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase">
+                Versión 2.0
+              </div>
+            </div>
             <h1 className="text-4xl font-bold tracking-tighter">Pintintin</h1>
             <p className="text-zinc-500 italic">El juego de los 150 puntos</p>
           </div>
@@ -299,9 +317,9 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-zinc-50">
-      {/* Sidebar: Player Management */}
-      <aside className="w-full lg:w-80 border-r border-zinc-200 bg-white flex flex-col h-screen sticky top-0">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-zinc-50 pb-20 lg:pb-0">
+      {/* Sidebar: Player Management (Hidden on mobile unless in 'players' view) */}
+      <aside className={`w-full lg:w-80 border-r border-zinc-200 bg-white flex flex-col h-screen sticky top-0 ${currentView === 'players' ? 'flex' : 'hidden lg:flex'}`}>
         <div className="p-6 border-bottom border-zinc-100 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -324,6 +342,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 text-zinc-400">
+            {role === 'admin' && (
+              <div className="flex items-center gap-1.5 mr-2 px-2 py-1 bg-zinc-100 rounded-full">
+                <Users size={12} />
+                <span className="text-[10px] font-bold">{userCount}</span>
+              </div>
+            )}
             <Trophy size={16} />
             <span className="text-sm font-mono">{globalGameCount}</span>
           </div>
@@ -411,11 +435,11 @@ export default function App() {
       </aside>
 
       {/* Main Content: Game Board */}
-      <main className="flex-1 p-4 lg:p-8 overflow-y-auto">
+      <main className={`flex-1 p-4 lg:p-8 overflow-y-auto ${currentView === 'game' ? 'block' : 'hidden lg:block'}`}>
         <div className="max-w-4xl mx-auto space-y-8">
           <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Tablero Principal</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Pintintin <span className="text-xs bg-zinc-900 text-white px-2 py-0.5 rounded-full ml-2">v2.0</span></h1>
               <p className="text-zinc-500">Gestiona tu partida en tiempo real</p>
             </div>
             <div className="flex items-center gap-2">
@@ -471,7 +495,7 @@ export default function App() {
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {activeGame.players.map((player) => {
-                  const isWinner = activeGame.winnerId === player.id;
+                  const isWinner = activeGame.winnerId === player.id || activeGame.winnerIds?.includes(player.id);
                   const isLoser = activeGame.loserId === player.id;
                   
                   return (
@@ -591,70 +615,95 @@ export default function App() {
         </div>
       </main>
 
-      {/* Floating Chat */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4">
-        <AnimatePresence>
-          {isChatOpen && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              className="w-80 h-96 glass rounded-2xl flex flex-col overflow-hidden shadow-2xl border-zinc-200"
-            >
-              <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-900 text-white">
-                <div className="flex items-center gap-2">
-                  <MessageCircle size={18} />
-                  <span className="font-bold text-sm tracking-tight">Chat ({userCount} online)</span>
+      {/* Floating Chat (Desktop) / Chat View (Mobile) */}
+      <div className={`fixed inset-0 z-50 lg:relative lg:inset-auto lg:z-0 lg:w-80 border-l border-zinc-200 bg-white flex flex-col h-screen transition-transform duration-300 ${
+        currentView === 'chat' ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
+      } ${currentView === 'chat' ? 'flex' : 'hidden lg:flex'}`}>
+        <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageCircle size={20} className="text-zinc-400" />
+            <h2 className="text-lg font-bold">Chat en Vivo</h2>
+          </div>
+          <button onClick={() => setCurrentView('game')} className="lg:hidden p-2 hover:bg-zinc-100 rounded-full">
+            <X size={20} />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {chatMessages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-zinc-300 space-y-2">
+              <MessageCircle size={48} />
+              <p className="text-sm font-medium">No hay mensajes aún</p>
+            </div>
+          ) : (
+            chatMessages.map((msg) => (
+              <div key={msg.id} className={`flex flex-col ${msg.user === username ? 'items-end' : 'items-start'}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{msg.user}</span>
+                  <span className="text-[10px] text-zinc-300">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
-                <button onClick={() => setIsChatOpen(false)} className="hover:text-zinc-300">
-                  <X size={18} />
-                </button>
+                <div className={`px-4 py-2 rounded-2xl text-sm max-w-[80%] ${
+                  msg.user === username ? 'bg-zinc-900 text-white rounded-tr-none' : 'bg-zinc-100 text-zinc-800 rounded-tl-none'
+                }`}>
+                  {msg.text}
+                </div>
               </div>
-              
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {chatMessages.map(msg => (
-                  <div key={msg.id} className="space-y-1">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{msg.user}</p>
-                    <div className="bg-zinc-100 p-3 rounded-2xl rounded-tl-none text-sm">
-                      {msg.text}
-                    </div>
-                  </div>
-                ))}
-                {chatMessages.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-zinc-400 space-y-2">
-                    <MessageCircle size={24} opacity={0.5} />
-                    <p className="text-xs">No hay mensajes aún</p>
-                  </div>
-                )}
-              </div>
-
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const input = e.currentTarget.elements.namedItem('chatInput') as HTMLInputElement;
-                  sendMessage(input.value);
-                  input.value = '';
-                }}
-                className="p-4 border-t border-zinc-100 bg-white"
-              >
-                <input 
-                  name="chatInput"
-                  type="text" 
-                  placeholder="Escribe algo..."
-                  className="w-full px-4 py-2 rounded-xl border border-zinc-200 text-sm focus:ring-2 focus:ring-zinc-900 outline-none"
-                />
-              </form>
-            </motion.div>
+            ))
           )}
-        </AnimatePresence>
+        </div>
 
-        <button 
-          onClick={() => setIsChatOpen(!isChatOpen)}
-          className="w-14 h-14 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-xl hover:scale-110 transition-all active:scale-95"
-        >
-          <MessageCircle size={24} />
-        </button>
+        <div className="p-4 border-t border-zinc-100">
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              const input = e.currentTarget.elements.namedItem('chatInput') as HTMLInputElement;
+              sendMessage(input.value);
+              input.value = '';
+            }}
+            className="flex gap-2"
+          >
+            <input 
+              name="chatInput"
+              autoComplete="off"
+              placeholder="Escribe un mensaje..."
+              className="flex-1 bg-zinc-50 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-zinc-900 transition-all"
+            />
+            <button className="p-2 bg-zinc-900 text-white rounded-xl hover:scale-105 active:scale-95 transition-all">
+              <ChevronRight size={20} />
+            </button>
+          </form>
+        </div>
       </div>
+
+      {/* Bottom Navigation for Mobile */}
+      <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-zinc-200 flex items-center justify-around px-4 lg:hidden z-40">
+        <button 
+          onClick={() => setCurrentView('game')}
+          className={`flex flex-col items-center gap-1 transition-colors ${currentView === 'game' ? 'text-zinc-900' : 'text-zinc-400'}`}
+        >
+          <Trophy size={20} />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Partida</span>
+        </button>
+        <button 
+          onClick={() => setCurrentView('players')}
+          className={`flex flex-col items-center gap-1 transition-colors ${currentView === 'players' ? 'text-zinc-900' : 'text-zinc-400'}`}
+        >
+          <Users size={20} />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Jugadores</span>
+        </button>
+        <button 
+          onClick={() => setCurrentView('chat')}
+          className={`flex flex-col items-center gap-1 transition-colors ${currentView === 'chat' ? 'text-zinc-900' : 'text-zinc-400'}`}
+        >
+          <div className="relative">
+            <MessageCircle size={20} />
+            {chatMessages.length > 0 && (
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+            )}
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-widest">Chat</span>
+        </button>
+      </nav>
 
       {/* History Modal */}
       <AnimatePresence>

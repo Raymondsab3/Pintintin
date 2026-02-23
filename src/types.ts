@@ -23,6 +23,7 @@ export interface ActiveGame {
   }[];
   isFinished: boolean;
   winnerId?: string;
+  winnerIds?: string[];
   loserId?: string;
   tieForLoser?: boolean;
 }
