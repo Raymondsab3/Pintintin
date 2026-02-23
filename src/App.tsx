@@ -20,10 +20,11 @@ import {
   UserCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { io, Socket } from 'socket.io-client';
+import io from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { Player, GameHistoryEntry, ActiveGame, ChatMessage, UserRole } from './types';
 
-let socket: Socket;
+let socket: any;
 
 export default function App() {
   // Auth State
@@ -76,6 +77,31 @@ export default function App() {
   }, [players, history, globalGameCount, activeGame, username]);
 
   // Handlers
+  const handleLogin = (selectedRole: UserRole) => {
+    if (selectedRole === 'admin') {
+      if (username === 'Raymond' && password === 'Gca$3nxa') {
+        setRole('admin');
+      } else {
+        alert('Credenciales de administrador incorrectas');
+        return;
+      }
+    } else if (selectedRole === 'user') {
+      if (!username.trim()) {
+        alert('Por favor ingresa un nombre de usuario');
+        return;
+      }
+      setRole('user');
+    } else {
+      setRole('guest');
+    }
+    localStorage.setItem('pintintin_username', username);
+  };
+
+  const handleLogout = () => {
+    setRole(null);
+    setPassword('');
+  };
+
   const addPlayer = (name: string) => {
     if (!name.trim()) return;
     const newPlayer: Player = {
@@ -251,13 +277,7 @@ export default function App() {
 
             <div className="grid grid-cols-2 gap-4">
               <button 
-                onClick={() => {
-                  if (username === 'Raymond' && password === 'Gca$3nxa') {
-                    setRole('admin');
-                  } else {
-                    setRole('user');
-                  }
-                }}
+                onClick={() => handleLogin(username === 'Raymond' ? 'admin' : 'user')}
                 disabled={!username.trim()}
                 className="btn-primary flex flex-col items-center gap-2 py-6"
               >
@@ -265,7 +285,7 @@ export default function App() {
                 <span>Entrar</span>
               </button>
               <button 
-                onClick={() => setRole('guest')}
+                onClick={() => handleLogin('guest')}
                 className="btn-secondary flex flex-col items-center gap-2 py-6"
               >
                 <Users size={24} />
@@ -283,7 +303,26 @@ export default function App() {
       {/* Sidebar: Player Management */}
       <aside className="w-full lg:w-80 border-r border-zinc-200 bg-white flex flex-col h-screen sticky top-0">
         <div className="p-6 border-bottom border-zinc-100 flex items-center justify-between">
-          <h2 className="text-xl font-bold tracking-tight">Jugadores</h2>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold tracking-tight">Jugadores</h2>
+              {(role === 'user' || role === 'admin') && (
+                <button 
+                  onClick={() => setShowPlayerSelection(true)}
+                  className="p-1 rounded-md bg-zinc-100 text-zinc-500 hover:bg-zinc-900 hover:text-white transition-all"
+                  title="Nueva Partida"
+                >
+                  <Plus size={14} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 mt-1">
+              <div className={`w-1.5 h-1.5 rounded-full ${role === 'admin' ? 'bg-emerald-500' : role === 'user' ? 'bg-blue-500' : 'bg-zinc-400'}`} />
+              <span className="text-[10px] uppercase tracking-widest font-bold text-zinc-400">
+                {role === 'admin' ? 'Administrador' : role === 'user' ? 'Usuario' : 'Invitado'}
+              </span>
+            </div>
+          </div>
           <div className="flex items-center gap-2 text-zinc-400">
             <Trophy size={16} />
             <span className="text-sm font-mono">{globalGameCount}</span>
@@ -361,6 +400,13 @@ export default function App() {
             <RotateCcw size={12} />
             Reiniciar Contador
           </button>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest font-bold text-red-400 hover:text-red-600 transition-colors pt-2 border-t border-zinc-200"
+          >
+            <X size={12} />
+            Cerrar Sesión
+          </button>
         </div>
       </aside>
 
@@ -377,13 +423,22 @@ export default function App() {
                 <Share2 size={18} />
                 <span>Compartir</span>
               </button>
-              {(role === 'user' || role === 'admin') && !activeGame && (
+              {(role === 'user' || role === 'admin') && (
                 <button 
-                  onClick={() => setShowPlayerSelection(true)}
-                  className="btn-primary flex items-center gap-2"
+                  onClick={() => {
+                    if (activeGame) {
+                      if (confirm('Ya hay una partida en curso. ¿Deseas cerrarla y empezar una nueva?')) {
+                        setActiveGame(null);
+                        setShowPlayerSelection(true);
+                      }
+                    } else {
+                      setShowPlayerSelection(true);
+                    }
+                  }}
+                  className="btn-primary flex items-center gap-2 shadow-lg shadow-zinc-900/10 hover:scale-105 active:scale-95 transition-all"
                 >
                   <Plus size={18} />
-                  <span>Nueva Partida</span>
+                  <span className="font-bold">Nueva Partida (Trio)</span>
                 </button>
               )}
             </div>
@@ -396,11 +451,20 @@ export default function App() {
               </div>
               <div className="space-y-1">
                 <h3 className="font-semibold text-lg">No hay partida activa</h3>
-                <p className="text-zinc-400 text-sm max-w-xs">
+                <p className="text-zinc-400 text-sm max-w-xs mb-4">
                   {(role === 'user' || role === 'admin') 
                     ? 'Selecciona 3 jugadores de tu lista para comenzar una nueva partida.' 
                     : 'Espera a que el anfitrión inicie una nueva partida.'}
                 </p>
+                {(role === 'user' || role === 'admin') && (
+                  <button 
+                    onClick={() => setShowPlayerSelection(true)}
+                    className="btn-primary flex items-center gap-2 px-6 py-3"
+                  >
+                    <Plus size={20} />
+                    <span>Seleccionar Trio</span>
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -610,7 +674,12 @@ export default function App() {
               className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
             >
               <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
-                <h2 className="text-xl font-bold tracking-tight">Seleccionar 3 Jugadores</h2>
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight">Seleccionar Trio</h2>
+                  <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+                    {selectedForNewGame.length} de 3 seleccionados
+                  </p>
+                </div>
                 <button onClick={() => setShowPlayerSelection(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
                   <X size={20} />
                 </button>
@@ -657,6 +726,16 @@ export default function App() {
               </div>
 
               <div className="p-6 bg-zinc-50 border-t border-zinc-100">
+                <div className="flex gap-1 mb-4">
+                  {[1, 2, 3].map(i => (
+                    <div 
+                      key={i} 
+                      className={`h-1.5 flex-1 rounded-full transition-all ${
+                        i <= selectedForNewGame.length ? 'bg-zinc-900' : 'bg-zinc-200'
+                      }`} 
+                    />
+                  ))}
+                </div>
                 <button 
                   disabled={selectedForNewGame.length !== 3}
                   onClick={() => {
@@ -666,7 +745,7 @@ export default function App() {
                   }}
                   className="w-full btn-primary py-3"
                 >
-                  Comenzar Partida
+                  {selectedForNewGame.length === 3 ? 'Comenzar Partida' : `Faltan ${3 - selectedForNewGame.length} jugadores`}
                 </button>
               </div>
             </motion.div>
